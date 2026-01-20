@@ -1,0 +1,21 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: movie-mood-reco
+    env_file:
+      - .env
+    ports:
+      - "8501:8501"
+    volumes:
+      # Code (dev-friendly)
+      - ./app:/app/app
+      # Données persistantes
+      - ./data:/app/data
+      - ./storage:/app/storage
+    command: >
+      streamlit run app/ui/streamlit_app.py
+      --server.port=8501
+      --server.address=0.0.0.0
+      --server.headless=true

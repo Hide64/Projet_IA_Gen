@@ -1,0 +1,13 @@
+.env
+__pycache__/
+*.pyc
+data/raw/
+data/processed/
+data/tmdb_cache/
+notes/
+storage/
+*.db
+*.index
+*.faiss
+.cache/
+.venv/
