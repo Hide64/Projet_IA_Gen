@@ -34,7 +34,7 @@ Elle est reconstruite automatiquement à partir d’une sauvegarde PostgreSQL fo
 Étapes :
 1. Télécharger la sauvegarde videotheque.dump (lien fourni séparément)
 2. Copier le fichier dans le dossier suivant :
-3. postgres/seed/videotheque.dump
+   - *postgres/seed/videotheque.dump*
 
 #### 3️⃣ Lancer l’application
 ```sh
