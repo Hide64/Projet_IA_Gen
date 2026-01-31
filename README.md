@@ -25,7 +25,7 @@ Application de recommandation de films basée sur :
 
 ### 🚀 Démarrage rapide
 #### 1️⃣ Configuration de l’environnement
-Bien qu'une grande partie des valeurs par défaut aient été conservées, merci de coller le fichier .env communiqué parrallèlement et contenant les variables d'environnement dans le repository.
+Bien qu'une grande partie des valeurs par défaut aient été conservées, merci de coller le fichier *.env*, communiqué parrallèlement et contenant les variables d'environnement, à la racine du repository.
  
 #### 2️⃣ Reconstruction automatique de la base PostgreSQL (premier lancement)
 📌 La base de données n’est pas versionnée dans le repo.
