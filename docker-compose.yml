@@ -19,3 +19,31 @@ services:
       --server.port=8501
       --server.address=0.0.0.0
       --server.headless=true
+  postgres:
+    #image: postgres:16
+    image: pgvector/pgvector:pg16
+    container_name: tp_postgres
+    environment:
+      POSTGRES_DB: videotheque
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d videotheque"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  ollama:
+      image: ollama/ollama:latest
+      container_name: ollama
+      ports:
+        - "11434:11434"
+      volumes:
+        - ollama:/root/.ollama
+
+volumes:
+  pgdata:
+  ollama:

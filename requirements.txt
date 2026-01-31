@@ -10,6 +10,8 @@ tenacity==8.5.0
 faiss-cpu==1.8.0.post1
 sentence-transformers==3.0.1
 
+psycopg2-binary==2.9.9
+
 # Optionnel mais utile
 rapidfuzz==3.9.6
 tqdm==4.66.4

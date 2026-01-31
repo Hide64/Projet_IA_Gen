@@ -1,0 +1,153 @@
+# -*- coding: utf-8 -*-
+import os
+import re
+import pandas as pd
+import psycopg2
+import argparse
+from psycopg2.extras import RealDictCursor
+from datetime import datetime
+
+# ===============================
+# Config
+# ===============================
+PG_HOST = "localhost"
+PG_DB   = os.getenv("POSTGRES_DB", "videotheque")
+PG_USER = os.getenv("POSTGRES_USER", "postgres")
+PG_PWD  = os.getenv("POSTGRES_PASSWORD", "postgres")
+PG_PORT = 5432
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--csv", required=True, help="Chemin vers le CSV SensCritique")
+parser.add_argument("--user-id", type=int, default=1)
+args = parser.parse_args()
+
+CSV_PATH = args.csv
+USER_ID = args.user_id
+
+PROVIDER = "senscritique"
+
+RE_REWATCH = re.compile(r"revu le\s+(\d{2}/\d{2}/\d{4})", re.IGNORECASE)
+RE_SC_ID   = re.compile(r"/(\d+)(?:\?|$)")
+
+# ===============================
+# DB helpers
+# ===============================
+def get_conn():
+    return psycopg2.connect(
+        host=PG_HOST,
+        dbname=PG_DB,
+        user=PG_USER,
+        password=PG_PWD,
+        port=PG_PORT,
+        options="-c client_encoding=UTF8",
+    )
+
+# ===============================
+# Utils
+# ===============================
+def extract_sc_id(url: str):
+    if not url:
+        return None
+    m = RE_SC_ID.search(url)
+    return m.group(1) if m else None
+
+def extract_rewatch_date(text: str):
+    if not text:
+        return None
+    m = RE_REWATCH.search(text)
+    if not m:
+        return None
+    return datetime.strptime(m.group(1), "%d/%m/%Y").date()
+
+def clean_comment(text: str):
+    if not text:
+        return None
+    text = RE_REWATCH.sub("", text)
+    return text.strip() or None
+
+# ===============================
+# SQL
+# ===============================
+SQL_FIND_FILM = """
+SELECT film_id
+FROM film_external_id
+WHERE provider = %(provider)s
+  AND external_key = %(external_key)s
+LIMIT 1;
+"""
+
+SQL_INSERT_WATCH_EVENT = """
+INSERT INTO watch_event (user_id, film_id, watched_at, context, notes)
+VALUES (%(user_id)s, %(film_id)s, %(watched_at)s, %(context)s, %(notes)s);
+"""
+
+SQL_UPSERT_USER_FILM = """
+INSERT INTO user_film (user_id, film_id, status, last_seen_at, rewatch_count)
+VALUES (%(user_id)s, %(film_id)s, 'SEEN', %(seen_at)s, 1)
+ON CONFLICT (user_id, film_id)
+DO UPDATE SET
+  last_seen_at = GREATEST(user_film.last_seen_at, EXCLUDED.last_seen_at),
+  rewatch_count = COALESCE(user_film.rewatch_count, 0) + 1;
+"""
+
+SQL_INSERT_COMMENT = """
+INSERT INTO user_comment (user_id, film_id, comment, source)
+VALUES (%(user_id)s, %(film_id)s, %(comment)s, 'senscritique');
+"""
+
+# ===============================
+# Main
+# ===============================
+def main():
+    print(f"[INFO] Import SensCritique comments from {CSV_PATH}")
+    df = pd.read_csv(CSV_PATH)
+
+    required = {"title", "film_url", "annotation"}
+    if not required.issubset(df.columns):
+        raise RuntimeError(f"Colonnes requises manquantes : {required}")
+
+    df["annotation"] = df["annotation"].fillna("").astype(str)
+    df = df[df["annotation"].str.strip() != ""].copy()
+
+    if df.empty:
+        print("[INFO] Aucun commentaire à importer.")
+        return
+
+    conn = get_conn()
+    imported = skipped = not_found = 0
+
+    with conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            for _, row in df.iterrows():
+                sc_id = extract_sc_id(row.get("film_url"))
+                if not sc_id:
+                    skipped += 1
+                    continue
+
+                cur.execute(SQL_FIND_FILM, {
+                    "provider": PROVIDER,
+                    "external_key": sc_id
+                })
+                film = cur.fetchone()
+                if not film:
+                    not_found += 1
+                    continue
+
+                film_id = film["film_id"]
+                annotation = row["annotation"]
+
+                rewatch_date = extract_rewatch_date(annotation)
+                comment = clean_comment(annotation)
+
+                # Rewatch détecté
+                if rewatch_date:
+                    cur.execute(SQL_INSERT_WATCH_EVENT, {
+                        "user_id": USER_ID,
+                        "film_id": film_id,
+                        "watched_at": rewatch_date,
+                        "context": "rewatch (senscritique)",
+                        "notes": None
+                    })
+                    cur.execute(SQL_UPSERT_USER_FILM, {
+                        "user_id": USER_ID,
+                        "film_id": film_id,

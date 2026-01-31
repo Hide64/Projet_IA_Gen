@@ -1,0 +1,46 @@
+film_id,tmdb_id,title,year,path,import_nas_id,raw_director,directors_db,reason
+9,26665,Aberdeen,2000,/volume1/Media/Films/Edmond Pang/Aberdeen (1080p Vostfr)/abd-aberdeen-1080p.mkv,705,Edmond Pang,Hans Petter Moland,DIRECTOR_MISMATCH
+10,923344,About Kim Sohee,2022,/volume1/Media/Films/About Kim Sohee (1080P Vostfr)/Next.Sohee.2022.VOSTFR.1080p.WEB-DL.H264-Slay3R.mkv,706,July Jung,정주리,DIRECTOR_MISMATCH
+24,231095,Beyond Our Ken,2008,/volume1/Media/Films/Edmond Pang/Beyond our Ken (DVDRip Vostfr)/Beyond our Ken (DVDRip).avi,720,Edmond Pang,Luke Walker | Melissa Maclean,DIRECTOR_MISMATCH
+34,37185,"Comrades, Almost a Love Story",1996,"/volume1/Media/Films/Comrades, Almost a Love Story (1080p Vostfr)/gimchi-comradesalmostalovestory1996.1080p.mkv",730,Peter Chan Ho-Sun,陳可辛,DIRECTOR_MISMATCH
+40,16804,Departures,2008,/volume1/Media/Films/Departures (1080p Multi)/Departures.Okuribito.Bluray.1080p.MULTI.mkv,736,Yojiro Takita,滝田洋二郎,DIRECTOR_MISMATCH
+41,581387,Destruction Finale,2019,/volume1/Media/Films/Destruction finale (1080p Vostfr)/Ashfall.2020.1080p.WEB-DL.DD5.1.H.264-EVO.mkv,737,Kim Byung-seo,김병서 | Lee Hae-jun,DIRECTOR_MISMATCH
+44,172928,殭屍醫生,1990,/volume1/Media/Films/Doctor Vampire (1080p Vostr)/Doctor.Vampire.1990.1080p.BluRay.EUREKA.Plus.Comms.FLAC.x264-MaG.mkv,740,Jamie Luk Kim-Ming,陸劍明,DIRECTOR_MISMATCH
+102,758866,Drive My Car,2021,/volume1/Media/Films/Drive My Car (1080p Vostfr)/drive.my.car.2021.1080p.bluray.x264-usury.mkv,748,Ryûsuke Hamaguchi,Ryusuke Hamaguchi,DIRECTOR_MISMATCH
+137,449924,Ip Man 4 : Le Dernier Combat,2019,/volume1/Media/Films/Ip Man 4 The Finale (1080p Vostfr)/Ip.Man.4.The.Finale.1080p.BluRay.x264.Atmos.TrueHD7.1-HDChina.mkv,784,Wilson Yip,葉偉信,DIRECTOR_MISMATCH
+141,1000837,Je suis toujours là,2024,/volume1/Media/Films/Je suis toujours là (1080p Vostfr)/Im.Still.Here.2024.1080p.AMZN.WEB-DL.DDP5.1.H.264-BYNDR.mkv,788,Marcelo Rubens Paiva,Walter Salles,DIRECTOR_MISMATCH
+147,25664,Judo,2004,/volume1/Media/Films/Johnnie To/Judo (1080p Vostfr)/throw.down.2004.1080p.bluray.x264-ghouls.mkv,794,Johnnie To,杜琪峰,DIRECTOR_MISMATCH
+405,567646,Korean Fried Chicken,2019,/volume1/Media/Films/Korean Fried Chicken (1080p Multi)/Extreme.Job.2019.MULTi.1080p.BluRay.DTS.x264-UTT.mkv,802,Lee Byeong-heon,이병헌,DIRECTOR_MISMATCH
+410,5879,L'Empire des sens,1976,/volume1/Media/Films/L'Empire des sens (BDRip)/L.Empire.Des.Sens.1976.Multi.BRrip.x264.AC3-GHZ.mkv,807,Nagisa Ōshima,Nagisa Ôshima,DIRECTOR_MISMATCH
+412,566397,L'Homme du Président,2020,/volume1/Media/Films/L'Homme du président (1080p Multi)/The.Man.Standing.Next.2020.MULTi.1080p.BluRay.DTS.x264-UTT.mkv,809,Woo Min-ho,우민호,DIRECTOR_MISMATCH
+437,34019,La Servante et le Samouraï,2004,/volume1/Media/Films/La Servante et le Samouraï (1080p Vostfr)/La servante et le samourai (2004) VOST 1080p Dolby TrueHD BluRay (Rip) x264.mkv,835,Yoji Yamada,Yōji Yamada,DIRECTOR_MISMATCH
+439,90147,La vie sans principe,2011,/volume1/Media/Films/La Vie sans principe (1080p Vostfr)/Life.Without.Principle.2011.1080p.BluRay.x264.2Audio.DTS-HDChina.mkv,837,Johnnie To,杜琪峰,DIRECTOR_MISMATCH
+448,575428,Le lac aux oies sauvages,2019,/volume1/Media/Films/Le Lac Aux Oies Sauvages (1080p VF & Vostfr)/Le.Lac.Aux.Oies.Sauvages.2019.MULTi.1080p.WEB.H264-ALLDAYiN_wWw.Extreme-Down.Ninja.mkv,846,Diao Yinan,刁亦男,DIRECTOR_MISMATCH
+455,19884,Le Sabre du mal,1966,/volume1/Media/Films/Le Sabre du mal (1080p Vostfr)/The.Sword.of.Doom.1966.Criterion.BluRay.Remux.1080p.AVC.FLAC.1.0-HiFi.mkv,853,Kihachi Okamoto,岡本喜八,DIRECTOR_MISMATCH
+475,69599,Le Bras armé de la loi,1984,/volume1/Media/Films/Le Bras armé de la loi (1080p Vostfr)/Long.Arm.Of.The.Law.1984.CHINESE.1080p.BluRay.x264.DTS-FGT.mkv,873,Johnny Mak Tong-Hung,麥當雄,DIRECTOR_MISMATCH
+477,41993,Love in a puff,2010,/volume1/Media/Films/Edmond Pang/Love in a Puff (DVDRip Vosta)/Love in a Puff (DVDRip Vosta).avi,875,Edmond Pang,彭浩翔,DIRECTOR_MISMATCH
+477,41993,Love in a puff,2010,/volume1/Media/Films/Edmond Pang/Love in a Puff (DVDRip Vosta)/ssf-liap1080.mkv,876,Edmond Pang,彭浩翔,DIRECTOR_MISMATCH
+479,105680,春嬌與志明,2012,/volume1/Media/Films/Edmond Pang/Love in the Buff (1080p Vostfr)/Love.In.The.Buff.2012.1080p.BluRay.x264-[YTS.AM].mp4,877,Edmond Pang,彭浩翔,DIRECTOR_MISMATCH
+480,447954,春嬌救志明,2017,/volume1/Media/Films/Edmond Pang/Love Off the Cuff (1080p Vosta)/Love.Off.the.Cuff.2017.1080p.BluRay.x264-WiKi.mkv,878,Edmond Pang,彭浩翔,DIRECTOR_MISMATCH
+484,14016,Mad Detective,2007,/volume1/Media/Films/Johnnie To/Mad Detective (1080p Vostfr)/Mad.Detective.2007.1080p.BluRay.DTS-HD.MA.5.1.x264-EPiC.mkv,882,"Wai Ka-Fai, Johnnie To",杜琪峰 | 韋家輝,DIRECTOR_MISMATCH
+492,36348,半支煙,1999,/volume1/Media/Films/Metade Fumaca (1080p Vostfr)/Metade.Fumaca.1999.HD1080P.X264.AAC.mkv,890,Riley Yip Kam-Hung,葉錦鴻,DIRECTOR_MISMATCH
+496,576422,恭喜八婆,2019,/volume1/Media/Films/Edmond Pang/Missbehavior (1080p Vosta)/missbehavior.2019.1080p.bluray.x264-rovers.mkv,894,Edmond Pang,彭浩翔,DIRECTOR_MISMATCH
+502,78033,My Heart Is That Eternal Rose,1989,/volume1/Media/Films/My Heart Is That Eternal Rose (1080p Vostfr)/My.Heart.Is.That.Eternal.Rose.1989.CHINESE.1080p.BluRay.x265-VXT.mp4,900,Patrick Tam Kar-Ming,譚家明,DIRECTOR_MISMATCH
+537,113,"Printemps, été, automne, hiver... et printemps",2003,"/volume1/Media/Films/Printemps, été, automne, hiver… et printemps (1080p Vostfr)/Spring.Summer.Fall.Winter.and.Spring.2003.1080p.BluRay.x264-PHOBOS.mkv",935,Kim Ki-duk,김기덕,DIRECTOR_MISMATCH
+549,86409,Romancing in the Air,2012,/volume1/Media/Films/Romancing In Thin Air (1080p Vosta)/Romancing.In.Thin.Air.2012.Mandarin.1080p.BluRay.x264-aBD.mkv,947,Johnnie To,杜琪峰,DIRECTOR_MISMATCH
+554,112929,School on Fire,1988,/volume1/Media/Films/School on Fire (1080p Vostfr)/School.On.Fire.1988.CHINESE.1080p.BluRay.x264.DTS-FGT.mkv,952,Ringo Lam Ling-Tung,林嶺東,DIRECTOR_MISMATCH
+554,112929,School on Fire,1988,/volume1/Media/Films/School on Fire (1080p Vostfr)/School on Fire 1988 1080p x264 AAC Fan Edit Reconstruction.mkv,953,Ringo Lam Ling-Tung,林嶺東,DIRECTOR_MISMATCH
+559,537761,Septet: Hong Kong Stories,2022,/volume1/Media/Films/Septet - The Story of Hong Kong (1080p Vostfr)/Septet.The.Story.of.Hong.Kong.2020.CHINESE.1080p.BluRay.x264.DD5.1-NOGRP.mkv,957,Sammo Hung Kam-Bo,Sammo Kam-Bo Hung | Tsui Hark | Yuen Woo-Ping | 杜琪峰 | 林嶺東 | 許鞍華 | 譚家明,DIRECTOR_MISMATCH
+573,18667,Swordsman 3,1993,/volume1/Media/Films/Swordsman III - The East is Red (1080p Vostfr)/Swordsman.III.The.East.Is.Red.1993.CHINESE.1080p.BluRay.x264.DTS-FGT.mkv,971,Tony Ching Siu-Tung,李惠民 | 程小東,DIRECTOR_MISMATCH
+574,11830,Tampopo,1985,/volume1/Media/Films/Tampopo (1080p Vostfr)/tampopo.1985.1080p.bluray.x264-usury.mkv,972,Jūzō Itami,伊丹十三,DIRECTOR_MISMATCH
+580,338729,The Beauty Inside,2015,/volume1/Media/Films/The Beauty Inside (720p Votfr)/The.Beauty.Inside.2015.720p.BluRay.x264-ROVERS.mkv,978,Baik,백,DIRECTOR_MISMATCH
+605,76257,Tout sur Ah Long,1989,/volume1/Media/Films/All About Ah Long (1080p Vosta)/All.About.Ah.Long.1989.1080p.BluRay.x264-aBD.mkv,1007,Johnnie To,杜琪峰,DIRECTOR_MISMATCH
+608,486898,Un grand voyage vers la nuit,2018,/volume1/Media/Films/Un grand voyage vers la nuit (1080p Vostfr)/long.days.journey.into.night.2018.1080p.bluray.x264-usury.mkv,1010,Bi Gan,毕赣,DIRECTOR_MISMATCH
+617,487786,Une pluie sans fin,2017,/volume1/Media/Films/Une Pluie sans fin (1080p Multi)/The.Looming.Storm.2017.MULTI.1080p.BluRay.x264-UTT.mkv,1019,Dong Yue,董越,DIRECTOR_MISMATCH
+625,118379,Viva Erotica,1996,/volume1/Media/Films/Viva Erotica (1080p Vostfr)/Se.qing.nan.nu.AKA.Viva.Erotica.1996.1080p.BluRay.x264-HANDJOB.mkv,1027,Derek Yee,爾冬陞 | 羅志良,DIRECTOR_MISMATCH
+628,123797,低俗喜劇,2012,/volume1/Media/Films/Edmond Pang/Vulgaria (1080p Vosta)/Vulgaria.2012.CHINESE.1080p.BluRay.x264.DTS-FGT.mkv,1030,Edmond Pang,彭浩翔,DIRECTOR_MISMATCH
+641,143156,侠女传奇,1992,/volume1/Media/Films/Zen of Sword (DVDRip Vostfr)/Zen of Sword 1992 Extendido.mkv,1043,Yu Mang-Sang,餘明生,DIRECTOR_MISMATCH
+643,110410,Drug War,2012,/volume1/Media/Films/Johnnie To/Drug War (1080p Vostfr)/Drug.War.2012.1080p.BluRay.x264-ROVERS.mkv,749,Johnnie To,杜琪峰,DIRECTOR_MISMATCH
+645,45871,The Mission,1999,/volume1/Media/Films/The Mission (1080p Multi HEVC)/The.Mission.1999.(Cheung.Foh).MULTI.1080p.x265.10bit.AAC-Break.mkv,992,Johnnie To,杜琪峰,DIRECTOR_MISMATCH
+646,622832,吹哨人,2019,/volume1/Media/Films/The Whistleblower (1080p Vostfr)/The.Whistleblower.2020.1080p.WEB-DL.H264.AC3-EVO.mkv,998,Xue Xiaolu,薛晓路,DIRECTOR_MISMATCH
+647,25648,Time,2006,/volume1/Media/Films/Time (DVDRip Vostfr)/Time.avi,1001,Kim Ki-duk,김기덕,DIRECTOR_MISMATCH

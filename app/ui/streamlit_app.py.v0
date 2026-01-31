@@ -1,0 +1,8 @@
+﻿import streamlit as st
+
+st.set_page_config(page_title="Movie Mood Reco", layout="centered")
+st.title("🎬 Movie Mood Recommendation")
+st.write("Si tu vois cette page, le conteneur démarre correctement ✅")
+
+mood = st.selectbox("Ton humeur du moment ?", ["😊 Bonne", "😐 Neutre", "😢 Triste", "🤯 Stressé", "😴 Fatigué"])
+st.write("Humeur sélectionnée :", mood)

@@ -1,0 +1,308 @@
+# -*- coding: utf-8 -*-
+import os
+import streamlit as st
+import psycopg2
+import pandas as pd
+import numpy as np
+from psycopg2.extras import RealDictCursor
+
+# ===============================
+# PostgreSQL config
+# ===============================
+PG_HOST = os.getenv("POSTGRES_HOST", "postgres")
+PG_DB   = os.getenv("POSTGRES_DB", "videotheque")
+PG_USER = os.getenv("POSTGRES_USER", "postgres")
+PG_PWD  = os.getenv("POSTGRES_PASSWORD", "postgres")
+PG_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
+
+DEFAULT_USER_ID = int(os.getenv("APP_USER_ID", "1"))
+
+# ===============================
+# DB helpers
+# ===============================
+def get_conn():
+    return psycopg2.connect(
+        host=PG_HOST,
+        dbname=PG_DB,
+        user=PG_USER,
+        password=PG_PWD,
+        port=PG_PORT,
+        options="-c client_encoding=UTF8",
+    )
+
+def fetch_df(conn, sql, params=None):
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute(sql, params or {})
+        return pd.DataFrame(cur.fetchall())
+
+# ===============================
+# SQL
+# ===============================
+
+# Profil genre: moyenne de tes notes pour les films SEEN ayant ce genre
+SQL_GENRE_PROFILE = """
+WITH rated_seen AS (
+  SELECT film_id, rating_10
+  FROM user_film
+  WHERE user_id = %(user_id)s
+    AND status = 'SEEN'
+    AND rating_10 IS NOT NULL
+)
+SELECT fg.genre_id,
+       AVG(rs.rating_10) AS avg_rating,
+       COUNT(*)          AS n
+FROM rated_seen rs
+JOIN film_genre fg ON fg.film_id = rs.film_id
+GROUP BY fg.genre_id
+HAVING COUNT(*) >= 2;
+"""
+
+# Candidats: films dispo (film_source) et non vus
+# + filtre ASCII pour éviter titres non localisés en asiatique (retire la ligne si tu veux)
+SQL_CANDIDATES = """
+SELECT DISTINCT
+  f.film_id,
+  f.title,
+  f.year,
+  f.runtime_min
+FROM film f
+JOIN film_source fs ON fs.film_id = f.film_id
+LEFT JOIN user_film uf
+  ON uf.user_id = %(user_id)s AND uf.film_id = f.film_id
+WHERE COALESCE(uf.status::text, 'WANT') <> 'SEEN'
+  AND f.title ~ '^[\\x00-\\x7F]+$';
+"""
+
+SQL_FILM_GENRES = "SELECT film_id, genre_id FROM film_genre;"
+SQL_GENRES      = "SELECT genre_id, name FROM genre;"
+
+# Réalisateurs par film (à adapter si ton schéma diffère)
+SQL_FILM_DIRECTORS = """
+SELECT
+  fc.film_id,
+  STRING_AGG(p.name, ', ' ORDER BY p.name) AS directors
+FROM film_credit fc
+JOIN person p ON p.person_id = fc.person_id
+WHERE
+  fc.department = 'Directing'
+  AND fc.job = 'Director'
+GROUP BY fc.film_id;
+"""
+
+# Profil réalisateur: moyenne de tes notes sur les films vus de ce réalisateur
+SQL_DIRECTOR_PROFILE = """
+WITH rated_seen AS (
+  SELECT film_id, rating_10
+  FROM user_film
+  WHERE user_id = %(user_id)s
+    AND status = 'SEEN'
+    AND rating_10 IS NOT NULL
+),
+directors AS (
+  SELECT fc.film_id, p.name AS director_name
+  FROM film_credit fc
+  JOIN person p ON p.person_id = fc.person_id
+  WHERE
+    fc.department = 'Directing'
+    AND fc.job = 'Director'
+)
+SELECT
+  d.director_name,
+  AVG(rs.rating_10) AS avg_rating,
+  COUNT(*)          AS n
+FROM rated_seen rs
+JOIN directors d ON d.film_id = rs.film_id
+GROUP BY d.director_name
+HAVING COUNT(*) >= 2
+ORDER BY avg_rating DESC;
+"""
+
+# ===============================
+# Scoring + explanation
+# ===============================
+def recommend(candidates, film_genres, genre_profile, genre_names,
+              film_directors, director_profile,
+              max_runtime, top_k):
+
+    def director_best(directors_str: str):
+        """Retourne (best_dir, best_avg, best_n) ou (None,None,None)"""
+        if not directors_str:
+            return None, None, None
+
+        directors = [d.strip() for d in directors_str.split(",") if d.strip()]
+        best_dir = None
+        best_avg = None
+        best_n = None
+
+        for d in directors:
+            info = director_profile.get(d)  # (avg, n)
+            if info is None:
+                continue
+            avg, n = info
+            if best_avg is None or avg > best_avg:
+                best_dir, best_avg, best_n = d, float(avg), int(n)
+
+        return best_dir, best_avg, best_n
+
+    rows = []
+    raw_scores = []
+
+    # 1) calcul des scores bruts (sans clamp)
+    for _, f in candidates.iterrows():
+        genres = film_genres.get(f.film_id, [])
+        if not genres:
+            continue
+
+        vals = [float(genre_profile.get(g, 0.0)) for g in genres]
+        s_genre = float(np.mean(vals)) if vals else 0.0
+
+        directors_str = film_directors.get(f.film_id)
+        best_dir, best_dir_score, best_dir_n = director_best(directors_str)
+
+        s_dir = float(best_dir_score) if best_dir_score is not None else s_genre
+        bonus_runtime = 0.15 if (f.runtime_min is not None and f.runtime_min <= max_runtime) else 0.0
+
+        raw = 0.85 * s_genre + 0.15 * s_dir + bonus_runtime  # pas de clamp ici
+
+        # explication
+        top_genres = sorted(
+            [(g, float(genre_profile.get(g, 0.0))) for g in genres],
+            key=lambda x: x[1],
+            reverse=True
+        )[:2]
+
+        why_lines = []
+        why_lines.append("• Genres : " + ", ".join(
+            f"{genre_names.get(g, '?')} ({w:.1f}/10)" for g, w in top_genres
+        ))
+
+        if best_dir:
+            why_lines.append(
+                f"• Réalisateur : {best_dir} (moyenne {best_dir_score:.1f}/10 sur {best_dir_n} films vus)"
+            )
+        elif directors_str:
+            why_lines.append(f"• Réalisateur : {directors_str}")
+
+        if bonus_runtime > 0:
+            why_lines.append(f"• Durée : ≤ {max_runtime} min (bonus)")
+
+        rows.append({
+            "film_id": f.film_id,
+            "title": f.title,
+            "year": f.year,
+            "runtime": f.runtime_min,
+            "raw_score": float(raw),
+            "why": "\n".join(why_lines)
+        })
+        raw_scores.append(float(raw))
+
+    if not rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows)
+
+    # 2) normalisation min-max -> score entre 6.0 et 10.0 (modifiable)
+    min_raw = float(df["raw_score"].min())
+    max_raw = float(df["raw_score"].max())
+
+    if max_raw - min_raw < 1e-9:
+        # tous les raw sont identiques: on évite "tout à 10"
+        df["score"] = 8.0
+    else:
+        df["score"] = 6.0 + 4.0 * (df["raw_score"] - min_raw) / (max_raw - min_raw)
+
+    df["score"] = df["score"].clip(0.0, 10.0).round(2)
+
+    # 3) tri et top_k
+    df = df.sort_values("score", ascending=False).head(top_k)
+
+    # on garde ce que l'IHM utilise
+    return df[["film_id", "title", "year", "runtime", "score", "why"]]
+
+# ===============================
+# UI
+# ===============================
+st.set_page_config(page_title="Reco Vidéothèque", layout="wide")
+st.title("🎬 Recommandations personnalisées (MVP PostgreSQL + Réalisateur)")
+
+with st.sidebar:
+    st.header("Paramètres")
+    user_id = st.number_input("Utilisateur (user_id)", value=DEFAULT_USER_ID, step=1)
+    top_k = st.slider("Nombre de recommandations", 5, 30, 10)
+    max_runtime = st.slider("Durée max (minutes)", 60, 240, 120)
+    go = st.button("🎯 Générer")
+
+if go:
+    with st.spinner("Chargement et calcul..."):
+        conn = get_conn()
+
+        genre_profile_df = fetch_df(conn, SQL_GENRE_PROFILE, {"user_id": user_id})
+        if genre_profile_df.empty:
+            conn.close()
+            st.error("Pas assez de films notés pour construire un profil de genres.")
+            st.stop()
+
+        candidates = fetch_df(conn, SQL_CANDIDATES, {"user_id": user_id})
+        film_genres_df = fetch_df(conn, SQL_FILM_GENRES)
+        genres_df = fetch_df(conn, SQL_GENRES)
+
+        # Directors (peut échouer si schéma film_credit différent)
+        film_directors_df = fetch_df(conn, SQL_FILM_DIRECTORS)
+        director_profile_df = fetch_df(conn, SQL_DIRECTOR_PROFILE, {"user_id": user_id})
+
+        conn.close()
+
+    # Maps
+    genre_profile = {int(k): float(v) for k, v in zip(genre_profile_df.genre_id, genre_profile_df.avg_rating)}
+    genre_names = dict(zip(genres_df.genre_id, genres_df.name))
+    film_genres = film_genres_df.groupby("film_id")["genre_id"].apply(list).to_dict()
+
+    film_directors = {}
+    if not film_directors_df.empty:
+        film_directors = dict(zip(film_directors_df["film_id"], film_directors_df["directors"]))
+
+    director_profile = {}
+    if not director_profile_df.empty:
+        director_profile = {
+            row["director_name"]: (float(row["avg_rating"]), int(row["n"]))
+            for _, row in director_profile_df.iterrows()
+        }
+
+    results = recommend(
+        candidates=candidates,
+        film_genres=film_genres,
+        genre_profile=genre_profile,
+        genre_names=genre_names,
+        film_directors=film_directors,
+        director_profile=director_profile,
+        max_runtime=max_runtime,
+        top_k=top_k
+    )
+
+    st.caption(f"DEBUG raw score range: {results['score'].min()} .. {results['score'].max()}")
+
+    st.subheader("🎥 Recommandations")
+    if results.empty:
+        st.warning("Aucun résultat (peut-être trop de filtres, ou peu de films candidats).")
+    else:
+        # Affichage façon "cards"
+        for i, r in enumerate(results.itertuples(index=False), start=1):
+            st.markdown(f"### {i}. {r.title} ({r.year}) — **{r.score}/10**")
+            rt = f"{r.runtime} min" if r.runtime else "inconnue"
+            st.caption(f"Durée : {rt}")
+            st.markdown(r.why)
+            st.divider()
+
+    with st.expander("Voir le profil (genres)"):
+        prof = (
+            genre_profile_df
+            .merge(genres_df, on="genre_id")
+            .sort_values("avg_rating", ascending=False)
+        )
+        st.dataframe(prof, use_container_width=True)
+
+    with st.expander("Voir le profil (réalisateurs)"):
+        if director_profile_df.empty:
+            st.info("Profil réalisateur vide (pas assez de films notés par réalisateur, ou schéma film_credit à adapter).")
+        else:
+            st.dataframe(director_profile_df, use_container_width=True)

@@ -1,6 +1,7 @@
 .env
 __pycache__/
 *.pyc
+backups/
 data/raw/
 data/processed/
 data/tmdb_cache/

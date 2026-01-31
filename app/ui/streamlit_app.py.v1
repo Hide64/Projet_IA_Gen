@@ -1,0 +1,129 @@
+# -*- coding: utf-8 -*-
+import os
+import streamlit as st
+import psycopg2
+import pandas as pd
+import numpy as np
+from psycopg2.extras import RealDictCursor
+
+PG_HOST = os.getenv("POSTGRES_HOST", "postgres")
+PG_DB   = os.getenv("POSTGRES_DB", "videotheque")
+PG_USER = os.getenv("POSTGRES_USER", "postgres")
+PG_PWD  = os.getenv("POSTGRES_PASSWORD", "postgres")
+PG_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
+
+DEFAULT_USER_ID = int(os.getenv("APP_USER_ID", "1"))
+
+def get_conn():
+    return psycopg2.connect(
+        host=PG_HOST,
+        dbname=PG_DB,
+        user=PG_USER,
+        password=PG_PWD,
+        port=PG_PORT
+    )
+
+def fetch_df(conn, sql, params=None):
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute(sql, params or {})
+        return pd.DataFrame(cur.fetchall())
+
+SQL_GENRE_PROFILE = """
+WITH rated_seen AS (
+  SELECT film_id, rating_10
+  FROM user_film
+  WHERE user_id = %(user_id)s
+    AND status = 'SEEN'
+    AND rating_10 IS NOT NULL
+)
+SELECT fg.genre_id,
+       AVG(rs.rating_10) AS avg_rating,
+       COUNT(*) AS n
+FROM rated_seen rs
+JOIN film_genre fg ON fg.film_id = rs.film_id
+GROUP BY fg.genre_id
+HAVING COUNT(*) >= 2;
+"""
+
+SQL_CANDIDATES = """
+SELECT DISTINCT
+  f.film_id,
+  f.title,
+  f.year,
+  f.runtime_min
+FROM film f
+JOIN film_source fs ON fs.film_id = f.film_id
+LEFT JOIN user_film uf
+  ON uf.user_id = %(user_id)s AND uf.film_id = f.film_id
+WHERE COALESCE(uf.status::text, 'WANT') <> 'SEEN';
+"""
+
+SQL_FILM_GENRES = "SELECT film_id, genre_id FROM film_genre;"
+SQL_GENRES = "SELECT genre_id, name FROM genre;"
+
+def recommend(candidates, film_genres, genre_profile, genre_names, max_runtime, top_k):
+    rows = []
+    for _, f in candidates.iterrows():
+        genres = film_genres.get(f.film_id, [])
+        if not genres:
+            continue
+
+        vals = [float(genre_profile.get(g, 0.0)) for g in genres]
+        s_genre = float(np.mean(vals)) if vals else 0.0
+
+        bonus_runtime = 0.2 if (f.runtime_min is not None and f.runtime_min <= max_runtime) else 0.0
+        score = 0.9 * s_genre + 0.1 * float(bonus_runtime)
+
+        reasons = []
+        reasons.append("Genres: " + ", ".join(
+            genre_names.get(g, "?") for g in genres[:2]
+        ))
+        if bonus_runtime:
+            reasons.append("Runtime <= {} min".format(max_runtime))
+
+        rows.append({
+            "Title": f.title,
+            "Year": f.year,
+            "Runtime": f.runtime_min,
+            "Score": round(score, 3),
+            "Why": " | ".join(reasons)
+        })
+
+    return pd.DataFrame(rows).sort_values("Score", ascending=False).head(top_k)
+
+st.set_page_config(page_title="Movie recommendations", layout="wide")
+st.title("Movie recommendations (MVP)")
+
+with st.sidebar:
+    user_id = st.number_input("User ID", value=DEFAULT_USER_ID)
+    top_k = st.slider("Top K", 5, 20, 10)
+    max_runtime = st.slider("Max runtime (min)", 60, 240, 120)
+    go = st.button("Generate")
+
+if go:
+    conn = get_conn()
+
+    genre_profile_df = fetch_df(conn, SQL_GENRE_PROFILE, {"user_id": user_id})
+    candidates = fetch_df(conn, SQL_CANDIDATES, {"user_id": user_id})
+    film_genres_df = fetch_df(conn, SQL_FILM_GENRES)
+    genres_df = fetch_df(conn, SQL_GENRES)
+
+    conn.close()
+
+    genre_profile = dict(zip(
+        genre_profile_df.genre_id,
+        genre_profile_df.avg_rating
+    ))
+    genre_names = dict(zip(genres_df.genre_id, genres_df.name))
+    film_genres = film_genres_df.groupby("film_id")["genre_id"].apply(list).to_dict()
+
+    results = recommend(
+        candidates,
+        film_genres,
+        genre_profile,
+        genre_names,
+        max_runtime,
+        top_k
+    )
+
+    st.dataframe(results, use_container_width=True)
