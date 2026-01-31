@@ -1,4 +1,4 @@
-### Movie Mood Recommender
+### 🎬 Movie Mood Recommender
 Application de recommandation de films basée sur :
 - les goûts utilisateurs,
 - l’historique de visionnage,
