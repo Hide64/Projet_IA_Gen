@@ -31,6 +31,8 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+      - ./postgres/seed:/seed:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d videotheque"]
       interval: 5s
