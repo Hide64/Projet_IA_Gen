@@ -1,0 +1,159 @@
+# -*- coding: utf-8 -*-
+import os
+import requests
+import streamlit as st
+import psycopg2
+import pandas as pd
+import numpy as np
+import json
+from psycopg2.extras import RealDictCursor
+
+# ===============================
+# CONFIGURATION
+# ===============================
+PG_HOST = os.getenv("POSTGRES_HOST", "postgres")
+PG_DB   = os.getenv("POSTGRES_DB", "videotheque")
+PG_USER = os.getenv("POSTGRES_USER", "postgres")
+PG_PWD  = os.getenv("POSTGRES_PASSWORD", "postgres")
+PG_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
+
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
+
+# ===============================
+# FONCTIONS DE BASE
+# ===============================
+def get_conn():
+    return psycopg2.connect(host=PG_HOST, dbname=PG_DB, user=PG_USER, password=PG_PWD, port=PG_PORT)
+
+def fetch_df(conn, sql, params=None):
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute(sql, params or {})
+        return pd.DataFrame(cur.fetchall())
+
+def ollama_embed(text: str):
+    r = requests.post(f"{OLLAMA_URL}/api/embeddings", json={"model": EMBED_MODEL, "prompt": text}, timeout=90)
+    return r.json().get("embedding")
+
+# ===============================
+# INTELLIGENCE : EXTRACTION & RERANKING
+# ===============================
+def extract_intent(user_text, available_genres):
+    """Demande à Ollama d'extraire les critères structurés."""
+    prompt = f"""
+    Analyse cette demande cinéma : "{user_text}"
+    Extraire en JSON uniquement :
+    {{
+      "genres": [], 
+      "max_duration": null, 
+      "style": "ambiance recherchée en 3 mots",
+      "is_short": boolean
+    }}
+    Genres possibles : {available_genres}
+    """
+    try:
+        r = requests.post(f"{OLLAMA_URL}/api/chat", json={
+            "model": OLLAMA_MODEL, "messages": [{"role": "user", "content": prompt}], 
+            "stream": False, "format": "json"
+        }, timeout=30)
+        return json.loads(r.json()["message"]["content"])
+    except:
+        return {"genres": [], "max_duration": None, "style": user_text, "is_short": False}
+
+def generate_narrative(title, year, overview, user_query):
+    """Génère une recommandation basée sur le match sémantique et le synopsis réel."""
+    prompt = f"""
+    Tu es un expert cinéma. Recommande le film '{title}' ({year}) en répondant à la demande : "{user_query}".
+    
+    SYNOPSIS DU FILM :
+    "{overview}"
+    
+    CONSIGNES DE RÉDACTION :
+    1. Fais le lien entre la demande de l'utilisateur ("{user_query}") et le style du film.
+    2. Résume succinctement l'intrigue sans spoiler.
+    3. Rédige 2 à 3 phrases maximum. 
+    4. Sois spécifique au film, ne reste pas dans le flou.
+    5. Ne cite pas le réalisateur.
+    """
+    try:
+        r = requests.post(f"{OLLAMA_URL}/api/chat", json={
+            "model": OLLAMA_MODEL, 
+            "messages": [{"role": "user", "content": prompt}], 
+            "stream": False,
+            "options": {"temperature": 0.5} # Plus de rigueur, moins d'invention
+        }, timeout=40)
+        return r.json()["message"]["content"]
+    except:
+        return f"Ce film de {year} correspond à votre recherche par son ambiance et son intrigue."
+
+# ===============================
+# SQL & RECHERCHE
+# ===============================
+SQL_HYBRID = """
+WITH semantic_search AS (
+    SELECT film_id, (1.0 - (embedding <=> %(qvec)s::vector)) AS similarity
+    FROM film_embedding
+    ORDER BY similarity DESC LIMIT 50
+)
+SELECT f.film_id, f.title, f.year, f.runtime_min, f.overview, s.similarity
+FROM film f
+JOIN semantic_search s ON f.film_id = s.film_id
+LEFT JOIN user_film uf ON uf.film_id = f.film_id AND uf.user_id = %(user_id)s
+WHERE (uf.status IS NULL OR uf.status != 'SEEN')
+  AND f.title ~ '^[\\x00-\\x7F]+$' 
+"""
+
+# ===============================
+# INTERFACE STREAMLIT
+# ===============================
+st.set_page_config(page_title="Ciné-Assistant", layout="centered")
+st.title("🎬 Votre Assistant Vidéothèque")
+
+# Chargement des genres pour le LLM
+@st.cache_data
+def get_genres():
+    conn = get_conn()
+    df = fetch_df(conn, "SELECT name FROM genre")
+    conn.close()
+    return [r['name'] for r in df.to_dict('records')]
+
+available_genres = get_genres()
+
+if prompt := st.chat_input("Ex: Une comédie d'action pas trop longue pour rire"):
+    with st.chat_message("user"): st.write(prompt)
+
+    with st.spinner("Analyse de votre demande..."):
+        intent = extract_intent(prompt, available_genres)
+        qvec = ollama_embed(intent['style'])
+        
+        conn = get_conn()
+        results = fetch_df(conn, SQL_HYBRID, {"user_id": 1, "qvec": "[" + ",".join(map(str, qvec)) + "]"})
+        conn.close()
+
+        # Filtrage Python (Priorité SQL/Logique)
+        if not results.empty:
+            # Filtre durée
+            if intent['max_duration']:
+                results = results[results['runtime_min'] <= intent['max_duration']]
+            elif intent['is_short']:
+                results = results[results['runtime_min'] <= 95]
+            
+            # Top 3 final (Reranking simple par similarité)
+            top_3 = results.sort_values('similarity', ascending=False).head(3)
+
+    with st.chat_message("assistant"):
+        if top_3.empty:
+            st.write("Je n'ai pas trouvé de film correspondant exactement, essayez d'élargir vos critères.")
+        else:
+            for r in top_3.itertuples():
+                with st.container():
+                    st.subheader(f"{r.title} ({int(r.year)})")
+                    st.caption(f"⏱️ {r.runtime_min} min | 🎯 Match sémantique : {int(r.similarity*100)}%")
+                    
+                    with st.spinner(f"Analyse de '{r.title}'..."):
+                        # On utilise le synopsis récupéré en SQL pour nourrir Ollama
+                        desc = generate_narrative(r.title, r.year, r.overview, prompt)
+                    
+                    st.write(desc)
+                    st.divider()

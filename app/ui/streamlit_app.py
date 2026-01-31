@@ -23,10 +23,9 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
 
 # ===============================
-# SQL QUERIES
+# SQL : FILTRAGE STRICT ET PROFIL
 # ===============================
 
-# Profil basé sur les notes passées
 SQL_GENRE_PROFILE = """
 WITH rated_seen AS (
   SELECT film_id, rating_10 FROM user_film
@@ -37,44 +36,26 @@ FROM rated_seen rs JOIN film_genre fg ON fg.film_id = rs.film_id
 GROUP BY fg.genre_id;
 """
 
-# Recherche hybride : Synopsis (film_embedding) + Commentaires (comment_embedding)
 SQL_HYBRID_SEARCH = """
-WITH sim_comments AS (
-    SELECT uc.film_id, (1.0 - (ce.embedding <=> %(qvec)s::vector)) AS score
-    FROM comment_embedding ce 
-    JOIN user_comment uc ON uc.comment_id = ce.comment_id
-    WHERE uc.user_id = %(user_id)s
-),
-sim_overviews AS (
-    SELECT film_id, (1.0 - (embedding <=> %(qvec)s::vector)) AS score
+WITH semantic_search AS (
+    SELECT film_id, (1.0 - (embedding <=> %(qvec)s::vector)) AS similarity
     FROM film_embedding
+    ORDER BY similarity DESC LIMIT 150
 )
-SELECT film_id, MAX(score) as semantic_score
-FROM (SELECT * FROM sim_comments UNION ALL SELECT * FROM sim_overviews) combined
-GROUP BY film_id
-ORDER BY semantic_score DESC LIMIT 20;
-"""
-
-# Liste des films non vus (Candidats)
-SQL_CANDIDATES = """
-WITH last_seen_ev AS (
-  SELECT user_id, film_id, MAX(watched_at)::date AS last_seen
-  FROM watch_event WHERE user_id = %(user_id)s GROUP BY user_id, film_id
-)
-SELECT DISTINCT
-  f.film_id, f.title, f.year, f.runtime_min,
-  COALESCE(uf.status::text, 'WANT') AS status,
-  COALESCE(uf.last_seen_at, ls.last_seen) AS last_seen_at
+SELECT DISTINCT f.film_id, f.title, f.year, f.runtime_min, f.overview, s.similarity
 FROM film f
-JOIN film_source fs ON fs.film_id = f.film_id
-LEFT JOIN user_film uf ON uf.user_id = %(user_id)s AND uf.film_id = f.film_id
-LEFT JOIN last_seen_ev ls ON ls.user_id = %(user_id)s AND ls.film_id = f.film_id
-WHERE COALESCE(uf.status::text, 'WANT') <> 'SEEN'
-  AND f.title ~ '^[\\x00-\\x7F]+$';
+JOIN semantic_search s ON f.film_id = s.film_id
+JOIN film_genre fg ON f.film_id = fg.film_id
+JOIN genre g ON fg.genre_id = g.genre_id
+LEFT JOIN user_film uf ON uf.film_id = f.film_id AND uf.user_id = %(user_id)s
+WHERE (uf.status IS NULL OR uf.status != 'SEEN')
+  AND (uf.last_seen_at IS NULL OR uf.last_seen_at < NOW() - INTERVAL '6 months')
+  AND f.title ~ '^[\\x00-\\x7F]+$' 
+  AND g.name = ANY(%(genres)s)
 """
 
 # ===============================
-# CORE UTILS
+# UTILS & OLLAMA
 # ===============================
 
 def get_conn():
@@ -85,144 +66,135 @@ def fetch_df(conn, sql, params=None):
         cur.execute(sql, params or {})
         return pd.DataFrame(cur.fetchall())
 
-def ollama_embed(text: str) -> list[float]:
+def ollama_embed(text: str):
     r = requests.post(f"{OLLAMA_URL}/api/embeddings", json={"model": EMBED_MODEL, "prompt": text}, timeout=90)
-    r.raise_for_status()
     return r.json().get("embedding")
 
-def to_pgvector_literal(vec: list[float]) -> str:
-    return "[" + ",".join(f"{float(x):.8f}" for x in vec) + "]"
-
-# ===============================
-# LOGIQUE DE FILTRAGE & SCORING
-# ===============================
-
-def llm_extract_filters(user_text: str, available_genres: list[str]) -> dict:
-    defaults = {"genres_include": [], "max_runtime": None, "top_k": 3}
-    prompt = f"Extract movie filters. Genres: {available_genres}. JSON only: {{\"genres_include\": [], \"max_runtime\": integer, \"top_k\": 3}}. Text: {user_text}"
-    try:
-        r = requests.post(f"{OLLAMA_URL}/api/chat", json={"model": OLLAMA_MODEL, "messages": [{"role": "user", "content": prompt}], "stream": False, "format": "json"}, timeout=15)
-        extracted = json.loads(r.json()["message"]["content"])
-        defaults.update(extracted)
-    except: pass
-    return defaults
-
-def apply_filters(candidates, film_genres, filters, genre_id_by_name):
-    df = candidates.copy()
-    # Filtre Runtime (avec protection contre les strings)
-    max_rt = filters.get("max_runtime")
-    if max_rt and str(max_rt).isdigit():
-        df = df[df["runtime_min"].fillna(999) <= int(max_rt)]
-    
-    # Filtre Genres
-    inc_names = filters.get("genres_include", [])
-    inc_ids = [genre_id_by_name[g] for g in inc_names if g in genre_id_by_name]
-    if inc_ids:
-        df = df[df["film_id"].map(lambda fid: any(gid in film_genres.get(fid, []) for gid in inc_ids))]
-    return df
-
-def recommend(candidates, semantic_results, film_genres, genre_profile, film_directors, top_k):
-    rows = []
-    six_months_ago = pd.Timestamp.now().date() - pd.Timedelta(days=180)
-    
-    # Map des scores sémantiques (synopsis + commentaires)
-    sem_map = dict(zip(semantic_results.film_id, semantic_results.semantic_score))
-    
-    for _, f in candidates.iterrows():
-        # Filtre 6 mois
-        if pd.notnull(f.last_seen_at):
-            ls = pd.to_datetime(f.last_seen_at).date()
-            if ls > six_months_ago: continue
-
-        genres = film_genres.get(f.film_id, [])
-        # Score Profil (Conversion Decimal -> float)
-        s_gen = np.mean([float(genre_profile.get(g, 5.0)) for g in genres]) if genres else 5.0
-        # Score Sémantique
-        s_sem = float(sem_map.get(f.film_id, 0.0)) * 10.0
-        
-        score = (0.3 * s_gen) + (0.7 * s_sem) # Priorité à la recherche actuelle
-        
-        rows.append({
-            "film_id": f.film_id, "title": f.title, "year": f.year, 
-            "director": film_directors.get(f.film_id, "Inconnu"),
-            "runtime": f.runtime_min, "score": round(min(score, 10.0), 1)
-        })
-    
-    if not rows: return pd.DataFrame(columns=["title", "year", "director", "runtime", "score"])
-    return pd.DataFrame(rows).sort_values("score", ascending=False).head(top_k + 5) # On en prend un peu plus pour le reranking
-
-# ===============================
-# RE-RANKING & EXPLICATION
-# ===============================
-
-def llm_rerank_and_explain(query, candidates_df):
-    """Demande au LLM de choisir les 3 meilleurs et d'expliquer."""
-    selection = candidates_df.head(10).to_json(orient="records")
+def extract_intent(user_text, available_genres):
+    # Prompt avec instruction de secours
     prompt = f"""
-    En tant qu'expert ciné, choisis les 3 films les plus pertinents pour : "{query}"
-    Candidats : {selection}
+    Analyse : "{user_text}"
+    Extraire en JSON uniquement :
+    {{
+      "genres": [], 
+      "max_duration": null, 
+      "style": "ambiance en 3 mots"
+    }}
+    Genres autorisés : {available_genres}
+    """
+    # Valeurs par défaut au cas où le JSON est incomplet
+    default_intent = {"genres": [], "max_duration": None, "style": user_text}
     
-    Réponds en JSON uniquement : 
-    [ {{"title": "...", "explanation": "Une phrase personnalisée liant le film à la recherche"}}, ... ]
+    try:
+        r = requests.post(f"{OLLAMA_URL}/api/chat", json={
+            "model": OLLAMA_MODEL, "messages": [{"role": "user", "content": prompt}], 
+            "stream": False, "format": "json"
+        }, timeout=30)
+        
+        extracted = json.loads(r.json()["message"]["content"])
+        # On fusionne avec les défauts pour garantir la présence des clés
+        default_intent.update(extracted)
+        return default_intent
+    except:
+        return default_intent
+
+def generate_narrative(title, year, overview, query):
+    prompt = f"""
+    Explique pourquoi recommander '{title}' ({year}) pour la demande "{query}".
+    Synopsis : "{overview}"
+    CONSIGNES :
+    1. Une phrase sur pourquoi ça matche l'ambiance.
+    2. Une phrase résumant l'intrigue (sans spoiler).
+    3. Pas de mention du réalisateur.
+    4. Ton chaleureux, 3 phrases max.
     """
     try:
-        r = requests.post(f"{OLLAMA_URL}/api/chat", json={"model": OLLAMA_MODEL, "messages": [{"role": "user", "content": prompt}], "stream": False, "format": "json"}, timeout=30)
-        return json.loads(r.json()["message"]["content"])
+        r = requests.post(f"{OLLAMA_URL}/api/chat", json={
+            "model": OLLAMA_MODEL, "messages": [{"role": "user", "content": prompt}], "stream": False
+        }, timeout=30)
+        return r.json()["message"]["content"].strip()
     except:
-        return [{"title": r.title, "explanation": "Correspond à vos goûts."} for r in candidates_df.head(3).itertuples()]
+        return "Ce film correspond à vos critères et propose une intrigue captivante."
 
 # ===============================
-# INTERFACE
+# INTERFACE STREAMLIT
 # ===============================
-st.set_page_config(page_title="Cinéma Hybride", layout="wide")
-st.title("🎬 Assistant Vidéothèque V2")
+st.set_page_config(page_title="Ciné-Assistant", layout="centered")
+st.title("🎬 Votre Assistant Vidéothèque Personnel")
 
-@st.cache_data(ttl=600)
-def load_data(user_id):
+@st.cache_data
+def load_base_data():
     conn = get_conn()
-    genres_df = fetch_df(conn, "SELECT genre_id, name FROM genre")
-    data = {
-        "candidates": fetch_df(conn, SQL_CANDIDATES, {"user_id": user_id}),
-        "genre_profile": {int(r.genre_id): float(r.avg_rating) for r in fetch_df(conn, SQL_GENRE_PROFILE, {"user_id": user_id}).itertuples()},
-        "film_genres": fetch_df(conn, "SELECT film_id, genre_id FROM film_genre").groupby("film_id")["genre_id"].apply(list).to_dict(),
-        "genre_names": dict(zip(genres_df.genre_id, genres_df.name)),
-        "genre_id_by_name": dict(zip(genres_df.name, genres_df.genre_id)),
-        "directors": dict(zip(*fetch_df(conn, "SELECT fc.film_id, STRING_AGG(p.name, ', ') FROM film_credit fc JOIN person p ON p.person_id = fc.person_id WHERE fc.job = 'Director' GROUP BY fc.film_id").values.T))
-    }
+    g_df = fetch_df(conn, "SELECT name FROM genre")
+    fg_df = fetch_df(conn, "SELECT film_id, genre_id FROM film_genre")
+    profile = fetch_df(conn, SQL_GENRE_PROFILE, {"user_id": DEFAULT_USER_ID})
     conn.close()
-    return data
-
-d = load_data(DEFAULT_USER_ID)
-
-if prompt := st.chat_input("Ex: Un thriller sombre avec une ambiance de pluie..."):
-    with st.chat_message("user"): st.write(prompt)
     
-    with st.spinner("Recherche hybride (Synopsis + Critiques)..."):
-        # 1. Analyse & Vecteur
-        filters = llm_extract_filters(prompt, list(d["genre_names"].values()))
-        qvec = to_pgvector_literal(ollama_embed(prompt))
-        
-        # 2. Match sémantique
-        conn = get_conn()
-        semantic_results = fetch_df(conn, SQL_HYBRID_SEARCH, {"user_id": DEFAULT_USER_ID, "qvec": qvec})
-        conn.close()
-        
-        # 3. Filtrage & Scoring
-        filtered = apply_filters(d["candidates"], d["film_genres"], filters, d["genre_id_by_name"])
-        recos_raw = recommend(filtered, semantic_results, d["film_genres"], d["genre_profile"], d["directors"], filters.get("top_k", 3))
+    return {
+        "genre_names": [r['name'] for r in g_df.to_dict('records')],
+        "film_genres": fg_df.groupby("film_id")["genre_id"].apply(list).to_dict(),
+        "profile": {int(r['genre_id']): float(r['avg_rating']) for r in profile.to_dict('records')}
+    }
 
-    with st.chat_message("assistant"):
-        if recos_raw.empty:
-            st.write("Désolé, aucun film ne correspond (même après recherche sémantique).")
-        else:
-            with st.spinner("Sélection des meilleures pépites..."):
-                final_items = llm_rerank_and_explain(prompt, recos_raw)
+data = load_base_data()
+
+if prompt := st.chat_input("Ex: Une comédie légère et courte..."):
+    with st.chat_message("user"): st.write(prompt)
+
+    with st.spinner("Recherche dans votre collection..."):
+        # 1. Extraction d'intention
+        intent = extract_intent(prompt, data["genre_names"])
+        style_query = intent.get('style') or prompt # Fallback sur le texte original si vide
+        qvec = ollama_embed(style_query)
+        
+        # 2. SQL avec filtrage strict (Genre)
+        genres_to_filter = intent['genres'] if intent['genres'] else data["genre_names"]
+        conn = get_conn()
+        results = fetch_df(conn, SQL_HYBRID_SEARCH, {
+            "user_id": DEFAULT_USER_ID, 
+            "qvec": "[" + ",".join(map(str, qvec)) + "]",
+            "genres": genres_to_filter
+        })
+        conn.close()
+
+        # 3. Scoring Hybride et protection KeyError
+        rows = []
+        top_recos = pd.DataFrame() # Initialisation vide par sécurité
+
+        if not results.empty:
+            # Filtre additionnel Durée
+            if intent['max_duration']:
+                results = results[results['runtime_min'].fillna(999) <= intent['max_duration']]
             
-            for item in final_items[:3]:
-                # On retrouve les infos complémentaires dans recos_raw
-                info = recos_raw[recos_raw['title'] == item['title']].iloc[0] if item['title'] in recos_raw['title'].values else None
-                st.markdown(f"### {item['title']} ({int(info.year) if info is not None else ''})")
-                if info is not None:
-                    st.caption(f"🎬 {info.director} | ⏱️ {info.runtime} min | ⭐ Pertinence: `{info.score}/10`")
-                st.write(f"✨ {item['explanation']}")
-                st.divider()
+            for r in results.itertuples():
+                # Score Genre (Profil historique) - 70%
+                g_ids = data["film_genres"].get(r.film_id, [])
+                s_gen = np.mean([data["profile"].get(gid, 5.0) for gid in g_ids]) if g_ids else 5.0
+                
+                # Score Sémantique (0 à 10) - 30%
+                s_sem = float(r.similarity) * 10.0
+                
+                final_score = (0.7 * s_gen) + (0.3 * s_sem)
+                
+                rows.append({
+                    "title": r.title, "year": r.year, "runtime": r.runtime_min, 
+                    "overview": r.overview, "score": final_score
+                })
+
+            if rows:
+                top_recos = pd.DataFrame(rows).sort_values("score", ascending=False).head(3)
+
+    # 4. Affichage des résultats
+    with st.chat_message("assistant"):
+        if top_recos.empty:
+            st.warning("⚠️ Aucun film ne correspond (essayez d'enlever des filtres de durée ou de genre).")
+        else:
+            for r in top_recos.itertuples():
+                with st.container():
+                    st.subheader(f"{r.title} ({int(r.year)})")
+                    st.caption(f"⏱️ {int(r.runtime) if pd.notnull(r.runtime) else '??'} min | ⭐ Score : {r.score:.1f}/10")
+                    
+                    with st.spinner(f"Réflexion sur {r.title}..."):
+                        desc = generate_narrative(r.title, r.year, r.overview, prompt)
+                    st.write(desc)
+                    st.divider()
